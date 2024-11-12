@@ -1,0 +1,12 @@
+httpx
+pymupdf
+Pillow
+fastapi
+pymongo
+azure-ai-formrecognizer
+azure-core
+python-dotenv
+pytz
+apscheduler
+werkzeug
+uvicorn
