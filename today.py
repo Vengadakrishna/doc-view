@@ -104,80 +104,53 @@ def convert_bbox_format(bbox: List[float]) -> Dict[str, float]:
         "height": round(height, 1)
     }
 
-def find_all_instances_of_text(ocr_data: Dict, search_text: str) -> List[Tuple[List[float], int]]:
-    """Find all instances of the text and their corresponding bounding boxes"""
-    words = search_text.lower().split()
-    text_instances = []
-    word_count = len(words)
-    seen_instances = set()
-    
-    ocr_words = [{
-        **word,
-        "text_lower": word["content"].lower()  # Changed from "text" to "content"
-    } for word in ocr_data["words"]]
-    
-    for i in range(len(ocr_words)):
-        if i + word_count > len(ocr_words):
-            break
-            
-        matched_words = []
-        current_word_idx = i
-        word_idx = 0
-        
-        while word_idx < word_count and current_word_idx < len(ocr_words):
-            current_ocr_word = ocr_words[current_word_idx]["text_lower"]
-            target_word = words[word_idx]
-            
-            if current_ocr_word == target_word or target_word in current_ocr_word:
-                matched_words.append(ocr_words[current_word_idx])
-                word_idx += 1
-            elif len(matched_words) > 0:
-                if current_ocr_word.isalnum() or current_ocr_word in [',', '&', '-', '#']:
-                    matched_words.append(ocr_words[current_word_idx])
-            
-            current_word_idx += 1
-        
-        if len(matched_words) >= word_count:
-            page_number = matched_words[0]["page_number"]
-            # Create bounding box from x, y, width, height coordinates
-            min_x = min(word["x"] for word in matched_words)
-            min_y = min(word["y"] for word in matched_words)
-            max_x = max(word["x"] + word["width"] for word in matched_words)
-            max_y = max(word["y"] + word["height"] for word in matched_words)
-            
-            # Convert to 8-point format
-            bbox = [min_x, min_y, max_x, min_y, max_x, max_y, min_x, max_y]
-            
-            instance_key = (
-                tuple(round(x, 4) for x in bbox),
-                page_number
-            )
-            
-            if instance_key not in seen_instances:
-                text_instances.append((bbox, page_number))
-                seen_instances.add(instance_key)
-    
-    return text_instances
-
-def process_ocr_data(ocr_data: Dict, fields_to_extract: List[str]) -> Dict[str, List[Dict]]:
+def process_ocr_data(ocr_data: List[Dict], fields_to_extract: List[str]) -> Dict[str, List[Dict]]:
     """Process OCR data with improved text reconstruction and field extraction"""
     logger.info("Starting OCR data processing")
-    
-    # Validate input data structure
-    if not isinstance(ocr_data, dict) or "words" not in ocr_data:
-        raise ValueError("Invalid OCR data format: missing 'words' key")
     
     results = {field: [] for field in fields_to_extract}
     seen_instances = {field: set() for field in fields_to_extract}
     
-    # Ensure words exist and are properly formatted
-    if not ocr_data["words"]:
-        logger.warning("No words found in OCR data")
-        return results
+    # Convert OCR data to expected format
+    words = []
+    for page in ocr_data:
+        page_number = page["page_number"]
+        for word in page["words"]:
+            # Extract coordinates more safely
+            x = float(word.get("x", 0))
+            y = float(word.get("y", 0))
+            width = float(word.get("width", 0))
+            height = float(word.get("height", 0))
+            
+            # Create bounding box coordinates
+            top_left = [x, y]
+            top_right = [x + width, y]
+            bottom_right = [x + width, y + height]
+            bottom_left = [x, y + height]
+            
+            word_data = {
+                "text": word["content"],
+                "content": word["content"],
+                "page_number": page_number,
+                "boundingBox": [
+                    top_left,
+                    top_right,
+                    bottom_right,
+                    bottom_left
+                ],
+                "x": x,
+                "y": y,
+                "width": width,
+                "height": height
+            }
+            words.append(word_data)
     
+    ocr_formatted = {"words": words}
+    
+    # Sort words by page and position
     sorted_words = sorted(
-        ocr_data["words"], 
-        key=lambda x: (x["page_number"], x["boundingBox"][1][1], x["boundingBox"][0][0])
+        words,
+        key=lambda x: (x["page_number"], x["y"], x["x"])
     )
     
     # Group words by page and line
@@ -187,7 +160,7 @@ def process_ocr_data(ocr_data: Dict, fields_to_extract: List[str]) -> Dict[str, 
     current_page = None
     
     # Calculate line threshold from word positions
-    y_positions = [word["boundingBox"][1][1] for word in sorted_words]
+    y_positions = [word["y"] for word in sorted_words]
     y_positions.sort()
     
     line_gaps = []
@@ -209,7 +182,7 @@ def process_ocr_data(ocr_data: Dict, fields_to_extract: List[str]) -> Dict[str, 
             last_y = None
             current_page = word["page_number"]
         
-        current_y = word["boundingBox"][1][1]
+        current_y = word["y"]
         
         if last_y is None or abs(current_y - last_y) > line_threshold:
             if current_line:
@@ -284,7 +257,7 @@ Text to analyze: {full_text}"""
             base_field = re.sub(r'_page\d+_\d+$', '', field_key)
             
             if base_field in fields_to_extract and value:
-                instances = find_all_instances_of_text(ocr_data, value)
+                instances = find_all_instances_of_text(ocr_formatted, value)
                 
                 for bbox, page_number in instances:
                     instance_key = (
@@ -311,10 +284,67 @@ Text to analyze: {full_text}"""
             results[field] = sorted(results[field], key=lambda x: (x["pageIndex"], x["y"], x["x"]))
     
     except Exception as e:
-        logger.error(f"Error processing fields: {e}")
+        logger.error(f"Error processing fields: {str(e)}")
         raise
         
     return results
+
+def find_all_instances_of_text(ocr_data: Dict, search_text: str) -> List[Tuple[List[float], int]]:
+    """Find all instances of the text and their corresponding bounding boxes"""
+    words = search_text.lower().split()
+    text_instances = []
+    word_count = len(words)
+    seen_instances = set()
+    
+    ocr_words = [{
+        **word,
+        "text_lower": word["text"].lower()
+    } for word in ocr_data["words"]]
+    
+    for i in range(len(ocr_words)):
+        if i + word_count > len(ocr_words):
+            break
+            
+        matched_words = []
+        current_word_idx = i
+        word_idx = 0
+        
+        while word_idx < word_count and current_word_idx < len(ocr_words):
+            current_ocr_word = ocr_words[current_word_idx]["text_lower"]
+            target_word = words[word_idx]
+            
+            if current_ocr_word == target_word or target_word in current_ocr_word:
+                matched_words.append(ocr_words[current_word_idx])
+                word_idx += 1
+            elif len(matched_words) > 0:
+                if current_ocr_word.isalnum() or current_ocr_word in [',', '&', '-', '#']:
+                    matched_words.append(ocr_words[current_word_idx])
+            
+            current_word_idx += 1
+        
+        if len(matched_words) >= word_count:
+            page_number = matched_words[0]["page_number"]
+            
+            # Calculate bounding box coordinates
+            min_x = min(word["x"] for word in matched_words)
+            min_y = min(word["y"] for word in matched_words)
+            max_x = max(word["x"] + word["width"] for word in matched_words)
+            max_y = max(word["y"] + word["height"] for word in matched_words)
+            
+            # Convert to 8-point format
+            bbox = [min_x, min_y, max_x, min_y, max_x, max_y, min_x, max_y]
+            
+            instance_key = (
+                tuple(round(x, 4) for x in bbox),
+                page_number
+            )
+            
+            if instance_key not in seen_instances:
+                text_instances.append((bbox, page_number))
+                seen_instances.add(instance_key)
+    
+    return text_instances
+
 
 def analyze_document_chunked(document_path):
     """Analyze document and extract text with bounding boxes"""
@@ -1117,6 +1147,7 @@ async def list_documents():
     </html>
     """
     return HTMLResponse(content=html_content)
+
 @app.post("/process-ocr")
 async def process_ocr_endpoint(request: OCRRequest):
     """Endpoint to process OCR data for a specific document"""
@@ -1131,7 +1162,7 @@ async def process_ocr_endpoint(request: OCRRequest):
             
         # Process the OCR data
         results = process_ocr_data(
-            ocr_data=document["ocr_output"],
+            document["ocr_output"],
             fields_to_extract=request.fields_to_extract
         )
         
@@ -1152,7 +1183,7 @@ async def process_ocr_endpoint(request: OCRRequest):
     except Exception as e:
         logger.error(f"Error processing OCR data: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error processing OCR data: {str(e)}")
-
+   
 
 if __name__ == "__main__":
     import uvicorn
