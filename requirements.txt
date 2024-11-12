@@ -1,7 +1,5 @@
-httpx
-pymupdf
-Pillow
 fastapi
+httpx
 pymongo
 azure-ai-formrecognizer
 azure-core
@@ -9,6 +7,9 @@ python-dotenv
 pytz
 apscheduler
 werkzeug
-uvicorn
-pydantic
 anthropic
+pydantic
+pillow
+PyMuPDF
+uvicorn
+python-multipart
