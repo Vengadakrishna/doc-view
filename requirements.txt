@@ -10,3 +10,4 @@ pytz
 apscheduler
 werkzeug
 uvicorn
+pydantic
