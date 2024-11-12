@@ -11,3 +11,4 @@ apscheduler
 werkzeug
 uvicorn
 pydantic
+anthropic
