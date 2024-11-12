@@ -550,7 +550,7 @@ async def upload_file(file: UploadFile = File(...)):
     contents = await file.read()
     doc = {
         "filename": file.filename,
-        "fileData": base64.b64encode(contents).decode('utf-8'),
+        "file_data": base64.b64encode(contents).decode('utf-8'),
         "status": "notprocessed",
         "upload_date": datetime.now(pytz.timezone('UTC')).isoformat()
     }
