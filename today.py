@@ -12,6 +12,7 @@ from PIL import Image
 import io
 from fastapi import FastAPI, HTTPException, File, UploadFile
 from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
 from azure.ai.formrecognizer import DocumentAnalysisClient
 from azure.core.credentials import AzureKeyCredential
@@ -52,6 +53,13 @@ anthropic_client = Anthropic(api_key=anthropic_api_key)
 
 # FastAPI app
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Scheduler configuration
 scheduler = BackgroundScheduler()
